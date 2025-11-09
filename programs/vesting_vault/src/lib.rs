@@ -7,6 +7,12 @@ declare_id!("GvzD2zDi4AvLjRA5893csKVsHYezfv6D2B3SpAenSxoi");
 pub enum ErrorCode {
     #[msg("Vault of out tokens")]
     VaultOutOfToken,
+
+    #[msg("Cliff period is Active, You can start claiming after it ends")]
+    CliffPeriodNotOver,
+
+    #[msg("All tokens claimed, no vested tokens available")]
+    AllTokensClaimed,
 }
 
 #[program]
@@ -21,6 +27,7 @@ pub mod vesting_vault {
         vault_state.vault_token_account = ctx.accounts.vault_token_account.key();
         vault_state.vault_bump = ctx.bumps.vault_token_account;
         vault_state.mint = ctx.accounts.mint.key();
+        vault_state.bump = ctx.bumps.vault_state;
         Ok(())
     }
 
@@ -57,6 +64,48 @@ pub mod vesting_vault {
         let cpi_context = CpiContext::new(token_program, cpi_accounts);
 
         token::transfer(cpi_context, token_tokens)?;
+        Ok(())
+    }
+
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        let vesting_account = &mut ctx.accounts.vesting_account;
+        let current_time = Clock::get()?.unix_timestamp;
+
+        require!(
+            vesting_account.cliff_period_till < current_time,
+            ErrorCode::CliffPeriodNotOver
+        );
+
+        let elapsed_time = (current_time - vesting_account.started_at) as u64;
+        let total_time = (vesting_account.end_at - vesting_account.started_at) as u64;
+
+        let total_tokens = vesting_account.total_tokens;
+        let claimed_tokens = vesting_account.claimed_tokens;
+
+        let vested_tokens =
+            (((total_tokens as u128) * (elapsed_time as u128)) / (total_time as u128)) as u64;
+        let vested_tokens = std::cmp::min(vested_tokens, total_tokens);
+        let claimable_tokens = vested_tokens - claimed_tokens;
+
+        require!(claimable_tokens > 0, ErrorCode::AllTokensClaimed);
+
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.vault_token_account.to_account_info(),
+            to: ctx.accounts.beneficiary_token_account.to_account_info(),
+            authority: ctx.accounts.vault_token_account.to_account_info(),
+        };
+
+        let token_program = ctx.accounts.token_program.to_account_info();
+
+        let vault_state = &ctx.accounts.vault_state;
+        let seeds = &[b"vault".as_ref(), &[vault_state.vault_bump]];
+        let signer_seeds = &[&seeds[..]];
+        let cpi_context = CpiContext::new_with_signer(token_program, cpi_accounts, signer_seeds);
+
+        vesting_account.claimed_tokens += claimable_tokens;
+
+        token::transfer(cpi_context, claimable_tokens)?;
+
         Ok(())
     }
 }
@@ -112,6 +161,7 @@ pub struct VaultState {
     pub vault_token_account: Pubkey,
     pub vault_bump: u8,
     pub mint: Pubkey,
+    pub bump: u8,
 }
 
 impl VaultState {
@@ -133,4 +183,27 @@ pub struct InitializeVault<'info> {
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct Claim<'info> {
+    #[account(seeds = [b"vault_state"], bump = vault_state.bump)]
+    pub vault_state: Account<'info, VaultState>,
+
+    #[account(mut, seeds=[b"vesting", beneficiary.key().as_ref()], bump = vesting_account.bump)]
+    pub vesting_account: Account<'info, VestingAccount>,
+
+    #[account(mut)]
+    pub beneficiary: Signer<'info>,
+
+    pub mint: Account<'info, Mint>,
+
+    #[account(mut, seeds = [b"vault"], bump = vault_state.vault_bump, token::mint = mint, token::authority = vault_token_account)]
+    pub vault_token_account: Account<'info, TokenAccount>,
+
+    #[account(init_if_needed, token::mint = mint, token::authority = beneficiary, payer = beneficiary)]
+    pub beneficiary_token_account: Account<'info, TokenAccount>,
+
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
 }
