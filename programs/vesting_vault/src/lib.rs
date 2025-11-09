@@ -13,6 +13,15 @@ pub enum ErrorCode {
 
     #[msg("All tokens claimed, no vested tokens available")]
     AllTokensClaimed,
+
+    #[msg("Total tokens must be greater than zero")]
+    TokensTooLow,
+
+    #[msg("End time must be in the future")]
+    EndTimeMustBeInFuture,
+
+    #[msg("Cliff period till must be between started_at and end_at")]
+    InvalidCliffPeriod,
 }
 
 #[program]
@@ -40,6 +49,10 @@ pub mod vesting_vault {
     ) -> Result<()> {
         let current_time = Clock::get()?.unix_timestamp;
         let vesting_account = &mut ctx.accounts.vesting_account;
+
+        require!(token_tokens > 0, ErrorCode::TokensTooLow);
+        require!(end_at > current_time, ErrorCode::EndTimeMustBeInFuture);
+        require!(cliff_period_till < end_at, ErrorCode::InvalidCliffPeriod);
 
         vesting_account.beneficiary = beneficiary;
         vesting_account.total_tokens = token_tokens;
