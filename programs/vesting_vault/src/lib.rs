@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{Mint, Token, TokenAccount, Transfer};
 
 declare_id!("GvzD2zDi4AvLjRA5893csKVsHYezfv6D2B3SpAenSxoi");
@@ -214,9 +215,15 @@ pub struct Claim<'info> {
     #[account(mut, seeds = [b"vault"], bump = vault_state.vault_bump, token::mint = mint, token::authority = vault_token_account)]
     pub vault_token_account: Account<'info, TokenAccount>,
 
-    #[account(init_if_needed, token::mint = mint, token::authority = beneficiary, payer = beneficiary)]
+    #[account(
+        init_if_needed,
+        payer = beneficiary,
+        associated_token::mint = mint,
+        associated_token::authority = beneficiary
+    )]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
