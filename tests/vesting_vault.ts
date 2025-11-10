@@ -120,7 +120,6 @@ describe("vesting_vault", () => {
     );
     expect(benAccount.amount.toString()).to.be.equal("0");
 
-    // Wait 5 seconds (past cliff at 2s, halfway through 10s vesting)
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     await program.methods
@@ -133,7 +132,6 @@ describe("vesting_vault", () => {
 
     let acc = await getAccount(provider.connection, benAccount.address);
     
-    // Should have ~50-60% of 100 tokens vested after 5 seconds
     expect(Number(acc.amount)).to.be.greaterThan(40 * 10 ** 9);
     expect(Number(acc.amount)).to.be.lessThanOrEqual(100 * 10 ** 9);
   });
